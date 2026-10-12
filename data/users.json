@@ -1,0 +1,13 @@
+[
+  {
+    "id": "u-admin",
+    "username": "admin",
+    "nama": "Administrator",
+    "email": "",
+    "foto": "",
+    "peran": "superadmin",
+    "tipe": "staff",
+    "aktif": true,
+    "passwordHash": "$2b$10$6gZ2nYe1ABXWMrsaVWAuOu8IXT1nYFrF0WIHujjBUupr/XNvK5xSO"
+  }
+]

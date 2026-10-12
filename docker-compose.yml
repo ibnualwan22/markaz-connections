@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    container_name: bawwabah-app
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3004:3000"
+    volumes:
+      - ./data:/app/data
