@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
-import { readJson, User, Grants, App } from "@/lib/store";
+import { readJson, User, Grants, App, Role, UserRoles } from "@/lib/store";
+import { effectiveAppIds } from "@/lib/akses";
 
 export async function GET() {
   const token = cookies().get(COOKIE_NAME)?.value;
@@ -13,8 +14,10 @@ export async function GET() {
   if (!user) return NextResponse.json({ user: null });
 
   const grants = await readJson<Grants>("grants.json", {});
+  const roles = await readJson<Role[]>("roles.json", []);
+  const userRoles = await readJson<UserRoles>("user_roles.json", {});
   const apps = await readJson<App[]>("apps.json", []);
-  const boleh = new Set(grants[user.id] || []);
+  const boleh = new Set(effectiveAppIds(user.id, grants, roles, userRoles));
   const { passwordHash: _h, ...aman } = user;
 
   return NextResponse.json({

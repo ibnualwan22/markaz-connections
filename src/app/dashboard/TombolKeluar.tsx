@@ -15,7 +15,7 @@ export default function TombolKeluar() {
   return (
     <button
       onClick={keluar}
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-600 hover:text-red-600 px-3 py-2"
+      className="inline-flex items-center gap-1.5 bg-white/80 border border-sky-200 text-sm font-semibold text-slate-600 hover:text-red-600 px-4 py-2 rounded-full shadow-sm transition"
     >
       <LogOut size={16} /> Keluar
     </button>

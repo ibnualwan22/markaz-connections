@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Bawwabah runtime data: berisi hash password, OTP, audit, dan foto civitas.
+# TIDAK BOLEH masuk git.
+data/
+
 # vercel
 .vercel
 

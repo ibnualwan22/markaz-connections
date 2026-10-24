@@ -1,3 +1,7 @@
 node_modules
 .next
 .git
+# Jangan memanggang data runtime (hash password, OTP, audit, foto) dan
+# secret ke dalam image. Data dipasang lewat volume compose saat runtime.
+data/
+.env*

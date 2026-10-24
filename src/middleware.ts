@@ -8,7 +8,9 @@ export async function middleware(req: NextRequest) {
   const payload = token ? await verifyToken(token) : null;
 
   const butuhLogin =
-    pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/profil");
 
   if (butuhLogin && !payload) {
     const url = new URL("/login", req.url);
@@ -28,5 +30,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*", "/login"],
+  matcher: ["/dashboard/:path*", "/admin/:path*", "/profil", "/profil/:path*", "/login"],
 };

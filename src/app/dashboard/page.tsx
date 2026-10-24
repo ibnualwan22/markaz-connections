@@ -1,11 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { LayoutGrid, ShieldCheck, ExternalLink } from "lucide-react";
-import { readJson, User, Grants, App } from "@/lib/store";
+import { readJson, User, Grants, App, Role, UserRoles } from "@/lib/store";
+import { effectiveAppIds } from "@/lib/akses";
+import { SSO_TARGETS } from "@/lib/sso-targets";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
-import { Ikon } from "@/lib/ikon";
-import TombolKeluar from "./TombolKeluar";
+import HexBackground from "@/lib/HexBackground";
+import AppCard from "@/components/AppCard";
 
 export default async function Dashboard() {
   const token = cookies().get(COOKIE_NAME)?.value;
@@ -17,125 +17,49 @@ export default async function Dashboard() {
   if (!user) redirect("/login?next=/dashboard");
 
   const grants = await readJson<Grants>("grants.json", {});
+  const roles = await readJson<Role[]>("roles.json", []);
+  const userRoles = await readJson<UserRoles>("user_roles.json", {});
   const apps = await readJson<App[]>("apps.json", []);
-  const boleh = new Set(grants[user.id] || []);
+  const boleh = new Set(effectiveAppIds(user.id, grants, roles, userRoles));
   const aplikasiSaya = apps.filter((a) => boleh.has(a.id));
 
-  const inisial = user.nama
-    .split(" ")
-    .map((k) => k[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b border-stone-200 bg-white/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-700 text-white flex items-center justify-center">
-              <LayoutGrid size={20} />
-            </div>
-            <div className="font-bold text-lg">Bawwabah</div>
-          </Link>
-          <div className="flex items-center gap-2">
-            {user.peran === "superadmin" && (
-              <Link
-                href="/admin"
-                className="text-sm font-medium text-stone-600 hover:text-emerald-700 px-3 py-2"
-              >
-                Admin
-              </Link>
-            )}
-            <TombolKeluar />
-          </div>
-        </div>
-      </header>
+    <main className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-sky-50 to-blue-100">
+      <HexBackground />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8">
-        <section className="bg-white border border-stone-200 rounded-2xl p-6 flex items-center gap-5">
-          {user.foto ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={user.foto}
-              alt={user.nama}
-              className="w-20 h-20 rounded-full object-cover border-2 border-emerald-200"
-            />
-          ) : (
-            <div className="w-20 h-20 rounded-full bg-emerald-700 text-white flex items-center justify-center text-2xl font-bold shrink-0">
-              {inisial}
-            </div>
-          )}
-          <div>
-            <h1 className="text-xl font-bold">{user.nama}</h1>
-            <p className="text-sm text-stone-500">
-              @{user.username}
-              {user.email ? ` • ${user.email}` : ""}
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2.5 py-1">
-                <ShieldCheck size={13} />
-                {user.peran === "superadmin"
-                  ? "Superadmin"
-                  : user.peran === "admin"
-                    ? "Admin"
-                    : "Staff"}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold mb-4">
+      <div className="relative z-10 max-w-6xl mx-auto px-4 pt-14 pb-20 sm:px-6 lg:px-8">
+        {/* Aplikasi (kartu user kini di atas sidebar) */}
+        <section className="mt-2">
+          <h2 className="text-lg font-bold text-slate-800 mb-3">
             Website yang dapat Anda akses{" "}
-            <span className="text-stone-400 font-normal">
+            <span className="text-slate-400 font-normal">
               ({aplikasiSaya.length})
             </span>
           </h2>
           {aplikasiSaya.length === 0 ? (
-            <div className="bg-white border border-stone-200 rounded-xl p-8 text-center text-sm text-stone-500">
+            <div className="bg-white/75 backdrop-blur-sm border border-sky-100 rounded-2xl p-8 text-center text-sm text-slate-500">
               Belum ada website yang diberikan akses untuk Anda.
               <br />
               Hubungi superadmin untuk meminta akses.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {aplikasiSaya.map((app) => (
-                <a
+                <AppCard
                   key={app.id}
-                  href={app.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-white border border-stone-200 rounded-xl p-5 hover:shadow-md hover:border-emerald-300 transition group"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-11 h-11 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-                        <Ikon nama={app.ikon} className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <div className="font-semibold group-hover:text-emerald-700">
-                          {app.nama}
-                        </div>
-                        <div className="text-xs text-stone-500">
-                          {app.kategori}
-                        </div>
-                      </div>
-                    </div>
-                    <ExternalLink
-                      size={16}
-                      className="text-stone-300 group-hover:text-emerald-600 shrink-0 mt-1"
-                    />
-                  </div>
-                  <p className="mt-3 text-sm text-stone-600 line-clamp-2">
-                    {app.deskripsi}
-                  </p>
-                </a>
+                  app={app}
+                  href={SSO_TARGETS[app.id] ? `/api/sso/${app.id}` : undefined}
+                />
               ))}
             </div>
           )}
         </section>
-      </main>
-    </div>
+
+        <footer className="mt-16 text-center text-xs text-blue-400/60 font-medium">
+          &copy; {new Date().getFullYear()} Markaz Arabiyah &mdash; Developed by{" "}
+          <span className="text-blue-700 font-semibold">Aksara X KSU Batch 10</span>.
+        </footer>
+      </div>
+    </main>
   );
 }
