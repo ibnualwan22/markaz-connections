@@ -5,6 +5,7 @@ import { readJson, App } from "@/lib/store";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 import HexBackground from "@/lib/HexBackground";
 import AppCard from "@/components/AppCard";
+import LogoMarquee from "@/components/LogoMarquee";
 
 export default async function Home() {
   const apps = await readJson<App[]>("apps.json", []);
@@ -44,6 +45,11 @@ export default async function Home() {
               alt="Bawwabah Logo"
               className="w-full h-full object-contain"
             />
+          </div>
+
+          {/* Marquee logo ekosistem, di atas tulisan Bawwabah */}
+          <div className="mb-7">
+            <LogoMarquee />
           </div>
 
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-blue-900 via-blue-700 to-sky-400 bg-clip-text text-transparent mb-4">

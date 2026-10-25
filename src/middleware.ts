@@ -7,10 +7,12 @@ export async function middleware(req: NextRequest) {
   const token = req.cookies.get(COOKIE_NAME)?.value;
   const payload = token ? await verifyToken(token) : null;
 
+  // Halaman pecahan admin (dulu /admin): hanya superadmin.
+  const halamanAdmin = ["/akun", "/website", "/akses", "/role", "/audit"];
   const butuhLogin =
     pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/admin") ||
-    pathname.startsWith("/profil");
+    pathname.startsWith("/profil") ||
+    halamanAdmin.includes(pathname);
 
   if (butuhLogin && !payload) {
     const url = new URL("/login", req.url);
@@ -18,7 +20,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (pathname.startsWith("/admin") && payload?.peran !== "superadmin") {
+  if (halamanAdmin.includes(pathname) && payload?.peran !== "superadmin") {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
@@ -30,5 +32,15 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*", "/profil", "/profil/:path*", "/login"],
+  matcher: [
+    "/dashboard/:path*",
+    "/akun",
+    "/website",
+    "/akses",
+    "/role",
+    "/audit",
+    "/profil",
+    "/profil/:path*",
+    "/login",
+  ],
 };

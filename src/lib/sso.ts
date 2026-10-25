@@ -5,10 +5,13 @@ import { createHmac, randomUUID } from "crypto";
 export function createSsoToken(
   siakadId: string,
   aud: string,
-  secret: string
+  secret: string,
+  extra?: { username?: string; superadmin?: boolean }
 ): string {
   const payload = {
     siakad_id: siakadId,
+    ...(extra?.username ? { username: extra.username } : {}),
+    ...(extra?.superadmin ? { superadmin: true } : {}),
     aud,
     exp: Math.floor(Date.now() / 1000) + 120,
     jti: randomUUID(),

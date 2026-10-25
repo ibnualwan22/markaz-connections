@@ -43,19 +43,41 @@ export async function GET(
       "Akun Anda tidak memiliki akses ke web ini."
     );
 
-  if (!s.user.siakadId)
+  // Target username (PPDB) memetakan lewat username, bukan siakadId.
+  // Target lain (Siakad) tetap wajib siakadId seperti semula.
+  if (target.username) {
+    if (!s.user.username)
+      return errorPage(
+        "Akun belum tertaut",
+        "Akun Bawwabah Anda tidak memiliki username. Hubungi super admin."
+      );
+  } else if (!s.user.siakadId) {
     return errorPage(
       "Akun belum tertaut",
       "Akun Bawwabah Anda belum tertaut ke akun Siakad. Hubungi super admin."
     );
+  }
 
-  const secret = process.env.BAWWABAH_SSO_SECRET;
+  const secret = process.env[target.secretEnv];
   if (!secret)
     return errorPage(
       "SSO belum dikonfigurasi",
       "Secret SSO belum dipasang di server Bawwabah. Hubungi admin."
     );
 
-  const token = createSsoToken(s.user.siakadId, target.aud, secret);
+  // Target e-maliyah: super admin Bawwabah ditandai klaim superadmin
+  // (verifier E-Maliyah memberi sesi admin; target lain mengabaikan
+  // klaim ekstra ini).
+  let extra: { username?: string; superadmin?: boolean } | undefined;
+  if (target.username) extra = { username: s.user.username };
+  else if (params.web === "e-maliyah" && s.user.peran === "superadmin")
+    extra = { superadmin: true };
+
+  const token = createSsoToken(
+    s.user.siakadId || "",
+    target.aud,
+    secret,
+    extra
+  );
   return NextResponse.redirect(`${target.url}?token=${token}`);
 }

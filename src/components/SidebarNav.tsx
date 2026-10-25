@@ -10,7 +10,11 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   User,
+  Users,
+  Globe,
+  KeyRound,
   ShieldCheck,
+  ScrollText,
   LogOut,
   Menu,
   X,
@@ -35,11 +39,19 @@ export default function SidebarNav({ user }: { user: SidebarUser }) {
     .join("")
     .toUpperCase();
 
+  // Menu admin pecahan (Akun, Website, Akses, Role, Audit) rata sejajar
+  // dengan menu lain — hanya superadmin yang melihatnya.
   const menu = [
     { href: "/dashboard", label: "Dashboard", ikon: LayoutDashboard },
     { href: "/profil", label: "Profil", ikon: User },
     ...(user.peran === "superadmin"
-      ? [{ href: "/admin", label: "Admin", ikon: ShieldCheck }]
+      ? [
+          { href: "/akun", label: "Akun", ikon: Users },
+          { href: "/website", label: "Website", ikon: Globe },
+          { href: "/akses", label: "Akses", ikon: KeyRound },
+          { href: "/role", label: "Role", ikon: ShieldCheck },
+          { href: "/audit", label: "Audit", ikon: ScrollText },
+        ]
       : []),
   ];
 
@@ -117,7 +129,9 @@ export default function SidebarNav({ user }: { user: SidebarUser }) {
 
   return (
     <>
-      {/* Mobile: tombol hamburger + drawer */}
+      {/* Mobile: tombol hamburger + drawer geser + latar blur.
+          Drawer selalu terpasang supaya animasi geser keluar ikut terlihat:
+          saat tertutup ia bergeser ke luar layar dan tidak menerima klik. */}
       <button
         onClick={() => setBuka(true)}
         aria-label="Buka menu"
@@ -125,24 +139,28 @@ export default function SidebarNav({ user }: { user: SidebarUser }) {
       >
         <Menu size={20} />
       </button>
-      {buka && (
-        <div className="md:hidden fixed inset-0 z-50">
-          <div
-            className="absolute inset-0 bg-slate-900/40"
+      <div className="md:hidden fixed inset-0 z-50 pointer-events-none">
+        <div
+          className={`absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300 ${
+            buka ? "opacity-100 pointer-events-auto" : "opacity-0"
+          }`}
+          onClick={() => setBuka(false)}
+        />
+        <div
+          className={`absolute inset-y-0 left-0 w-72 bg-white shadow-2xl transition-transform duration-300 ease-out ${
+            buka ? "translate-x-0 pointer-events-auto" : "-translate-x-full"
+          }`}
+        >
+          <button
             onClick={() => setBuka(false)}
-          />
-          <div className="absolute inset-y-0 left-0 w-72 bg-white shadow-2xl">
-            <button
-              onClick={() => setBuka(false)}
-              aria-label="Tutup menu"
-              className="absolute top-4 right-4 text-slate-500 z-10"
-            >
-              <X size={20} />
-            </button>
-            {isi}
-          </div>
+            aria-label="Tutup menu"
+            className="absolute top-4 right-4 text-slate-500 z-10"
+          >
+            <X size={20} />
+          </button>
+          {isi}
         </div>
-      )}
+      </div>
       {/* Desktop: sidebar permanen */}
       <aside className="hidden md:block fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-sm border-r border-sky-100 z-30">
         {isi}

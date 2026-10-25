@@ -5,41 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
 import HexBackground from "@/lib/HexBackground";
-
-const LOGOS = [
-  "/images/logo-ppdb-ma.png",
-  "/images/logo-ppdb-mt.png",
-  "/images/logo-siakad-ma.png",
-  "/images/logo-siakad-mt.png",
-  "/images/logo-emaliyah.png",
-  "/images/logo-etalim.png",
-  "/images/logo-mediator.png",
-];
-
-// Strip logo berjalan ke kiri, looping tanpa henti
-function LogoMarquee() {
-  const ganda = [...LOGOS, ...LOGOS];
-  return (
-    <div className="w-full overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
-      <div className="flex w-max items-center gap-10 animate-marquee">
-        {ganda.map((src, i) => (
-          <div
-            key={i}
-            className="w-16 h-16 shrink-0 rounded-2xl bg-white/80 border border-sky-100 shadow-sm flex items-center justify-center p-2"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={src}
-              alt=""
-              className="w-full h-full object-contain"
-              draggable={false}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+import LogoMarquee from "@/components/LogoMarquee";
 
 function FormLogin() {
   const [username, setUsername] = useState("");
@@ -156,9 +122,6 @@ function FormLogin() {
 
       {/* Marquee logo */}
       <div className="relative z-10 pb-8 pt-2">
-        <p className="text-center text-xs font-semibold text-blue-400/70 mb-3 tracking-wide">
-          EKOSISTEM DIGITAL MARKAZ ARABIYAH
-        </p>
         <LogoMarquee />
       </div>
     </main>
