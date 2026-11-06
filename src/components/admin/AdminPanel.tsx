@@ -122,6 +122,16 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
   const [aktivasiError, setAktivasiError] = useState("");
   const [mengaktifkan, setMengaktifkan] = useState(false);
 
+  // Fase 7: hasil propagasi aktivasi terakhir + status live + edit Usbu.
+  const [propagasi, setPropagasi] = useState<any>(null);
+  const [statusPropagasi, setStatusPropagasi] = useState<any>(null);
+  const [memeriksaStatus, setMemeriksaStatus] = useState(false);
+  const [editUsbu, setEditUsbu] = useState<Period | null>(null);
+  const [editUsbuForm, setEditUsbuForm] = useState({
+    usbu1StartDate: "", usbu1EndDate: "", usbu2StartDate: "", usbu2EndDate: "",
+    usbu3StartDate: "", usbu3EndDate: "",
+  });
+
   async function muat() {
     const [ru, ra, rg, rm, rad, rr, rur, rp, rs] = await Promise.all([
       fetch("/api/admin/users").then((r) => r.json()),
@@ -404,8 +414,91 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
       return;
     }
     setKonfirmasi(null);
+    setPropagasi(data.propagasi || null);
+    setStatusPropagasi(null);
     muat();
-    info(`Periode ${data.periode.namaDufah} diaktifkan di Bawwabah. Siakad/PPDB masih harus diaktifkan manual seperti biasa.`);
+    const pr = data.propagasi;
+    if (pr?.verifikasi?.siakadAktif === data.periode.namaDufah) {
+      info(`Periode ${data.periode.namaDufah} diaktifkan dan sudah tersinkron ke PPDB + Siakad.`);
+    } else if (pr?.rollover?.ok) {
+      info(`Periode ${data.periode.namaDufah} diaktifkan di PPDB. Siakad sedang mengikuti — status diperiksa otomatis di bawah.`);
+      pollStatus(data.periode.id, 0);
+    } else {
+      info(`Periode ${data.periode.namaDufah} diaktifkan di Bawwabah, tapi propagasi ke PPDB gagal: ${pr?.rollover?.error || "tidak diketahui"}. Coba lagi dari kartu Status Propagasi.`);
+    }
+  }
+
+  // Poll status propagasi sampai Siakad mengikuti (maks. 12x tiap 15 dtk).
+  async function pollStatus(id: string, n: number) {
+    if (n >= 12) return;
+    const res = await fetch(`/api/admin/periods/${id}/status`).then((r) => r.json()).catch(() => ({}));
+    if (res?.periode) {
+      setStatusPropagasi(res);
+      if (res.cocok) return;
+    }
+    setTimeout(() => pollStatus(id, n + 1), 15000);
+  }
+
+  async function periksaStatus(id: string) {
+    setMemeriksaStatus(true);
+    const res = await fetch(`/api/admin/periods/${id}/status`).then((r) => r.json()).catch(() => ({}));
+    setMemeriksaStatus(false);
+    if (res?.periode) setStatusPropagasi(res);
+    else info("Gagal membaca status propagasi");
+  }
+
+  async function cobaLagiPropagasi(id: string) {
+    const res = await fetch(`/api/admin/periods/${id}/propagasi`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return info("Gagal: " + (data.error || "ditolak"));
+    setPropagasi(data.propagasi || null);
+    periksaStatus(id);
+    info("Propagasi dicoba lagi — lihat status di bawah.");
+  }
+
+  async function kirimUlang(id: string) {
+    const res = await fetch(`/api/admin/periods/${id}/kirim-ulang`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return info("Gagal: " + (data.error || "ditolak"));
+    setPropagasi((pr: any) => ({
+      ...(pr || {}),
+      kirimUlang: data.sync,
+      verifikasi: data.verifikasi,
+      usbu: data.usbu ?? pr?.usbu,
+      emaliyah: data.emaliyah ?? pr?.emaliyah,
+    }));
+    periksaStatus(id);
+    if (data.sync?.ok) info(`Kirim ulang berhasil: ${data.sync.syncedCount ?? "?"} santri disinkronkan.`);
+    else info("Kirim ulang gagal: " + (data.sync?.error || "tidak diketahui"));
+  }
+
+  function bukaEditUsbu(p: Period) {
+    setEditUsbu(p);
+    setEditUsbuForm({
+      usbu1StartDate: p.usbu1StartDate || "",
+      usbu1EndDate: p.usbu1EndDate || "",
+      usbu2StartDate: p.usbu2StartDate || "",
+      usbu2EndDate: p.usbu2EndDate || "",
+      usbu3StartDate: p.usbu3StartDate || "",
+      usbu3EndDate: p.usbu3EndDate || "",
+    });
+  }
+
+  async function simpanEditUsbu(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editUsbu) return;
+    const res = await fetch(`/api/admin/periods/${editUsbu.id}/usbu`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editUsbuForm),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return info("Gagal: " + (data.error || "ditolak"));
+    setEditUsbu(null);
+    muat();
+    if (data.usbu?.ok) info("Tanggal Usbu disimpan dan terkirim ke Siakad." + (data.emaliyah?.ok ? " Mapping E-Maliyah dibuat." : ""));
+    else if (data.usbu) info("Tanggal Usbu disimpan, tapi gagal terkirim ke Siakad: " + (data.usbu.error || "tidak diketahui"));
+    else info("Tanggal Usbu disimpan (periode masih draf — akan dikirim ke Siakad setelah aktivasi).");
   }
 
   const input =
@@ -511,7 +604,7 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
         </label>
         <div>
           <p className="text-xs font-semibold text-slate-600 mb-2">
-            Tanggal Usbu (boleh kosong saat membuat draf, wajib lengkap saat aktivasi)
+            Tanggal Usbu (boleh kosong — diisi belakangan saat sudah pasti, biasanya di awal bulan)
           </p>
           <div className="grid sm:grid-cols-3 gap-3">
             <div className="border border-sky-100 rounded-xl p-3 bg-white/60">
@@ -958,6 +1051,124 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
                   Masa periode: {tampilMasa(periodeBerjalan)}
                   {periodeBerjalan.activatedByUsername ? ` • Diaktifkan oleh ${periodeBerjalan.activatedByUsername}` : ""}
                 </p>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <button
+                    onClick={() => bukaEditUsbu(periodeBerjalan)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 border border-sky-200 hover:bg-white/70"
+                  >
+                    Isi/Ubah Tanggal Usbu
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {editUsbu && (
+              <form onSubmit={simpanEditUsbu} className={`${kartu} p-5 mb-6`}>
+                <h3 className="font-bold text-slate-800 mb-1">Tanggal Usbu: {editUsbu.namaDufah}</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  Tanggal Usbu boleh diubah pada periode berjalan. Bila sudah lengkap, otomatis terkirim ke Siakad dan E-Maliyah dibuatkan mapping-nya.
+                </p>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  {([1, 2, 3] as const).map((n) => (
+                    <div key={n} className="border border-sky-100 rounded-xl p-3 bg-white/60">
+                      <p className="text-xs font-bold text-slate-700 mb-2">Usbu {n}</p>
+                      <label className="block mb-2">
+                        <span className="text-xs text-slate-500">Mulai</span>
+                        <input className={input} type="date" value={editUsbuForm[`usbu${n}StartDate` as keyof typeof editUsbuForm]} onChange={(e) => setEditUsbuForm({ ...editUsbuForm, [`usbu${n}StartDate`]: e.target.value })} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-slate-500">Selesai</span>
+                        <input className={input} type="date" value={editUsbuForm[`usbu${n}EndDate` as keyof typeof editUsbuForm]} onChange={(e) => setEditUsbuForm({ ...editUsbuForm, [`usbu${n}EndDate`]: e.target.value })} />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button className="bg-gradient-to-r from-blue-700 to-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:from-blue-800 hover:to-sky-600 shadow-lg shadow-blue-600/25">
+                    Simpan Tanggal Usbu
+                  </button>
+                  <button type="button" onClick={() => setEditUsbu(null)} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-white/70">
+                    Batal
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {periodeBerjalan && (propagasi || statusPropagasi) && (
+              <div className={`${kartu} p-5 mb-6`}>
+                <h3 className="font-bold text-slate-800 mb-3">Status Propagasi — {periodeBerjalan.namaDufah}</h3>
+                <dl className="text-sm space-y-2 mb-4">
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-500">PPDB</dt>
+                    <dd className="font-medium text-slate-800 text-right">
+                      {(statusPropagasi?.ppdbAktif ?? propagasi?.verifikasi?.ppdbAktif) === periodeBerjalan.namaDufah
+                        ? `✓ aktif (${periodeBerjalan.namaDufah})`
+                        : `belum aktif — terbaca: ${statusPropagasi?.ppdbAktif ?? propagasi?.verifikasi?.ppdbAktif ?? "tidak dapat dibaca"}`}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-500">Siakad</dt>
+                    <dd className="font-medium text-slate-800 text-right">
+                      {(statusPropagasi?.siakadAktif ?? propagasi?.verifikasi?.siakadAktif) === periodeBerjalan.namaDufah
+                        ? `✓ mengikuti (${statusPropagasi?.siakadJumlah ?? propagasi?.verifikasi?.siakadJumlah ?? "?"} santri aktif)`
+                        : `belum mengikuti — terbaca: ${statusPropagasi?.siakadAktif ?? propagasi?.verifikasi?.siakadAktif ?? "tidak dapat dibaca"}`}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-500">Tanggal Usbu ke Siakad</dt>
+                    <dd className="font-medium text-slate-800 text-right">
+                      {propagasi?.usbu?.ok
+                        ? "✓ terkirim"
+                        : propagasi?.usbu
+                          ? `gagal: ${propagasi.usbu.error || "tidak diketahui"}`
+                          : "menunggu tanggal Usbu lengkap"}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-500">E-Maliyah</dt>
+                    <dd className="font-medium text-slate-800 text-right">
+                      {propagasi?.emaliyah?.ok
+                        ? `✓ mapping bulan ${propagasi.emaliyah.month}/${propagasi.emaliyah.year}${propagasi.emaliyah.sudahAda ? " (sudah ada)" : " dibuat"}`
+                        : propagasi?.emaliyah
+                          ? `gagal: ${propagasi.emaliyah.error || "tidak diketahui"}`
+                          : "menunggu tanggal Usbu lengkap"}
+                    </dd>
+                  </div>
+                  {propagasi?.rollover?.ok && (
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Rollover PPDB</dt>
+                      <dd className="font-medium text-slate-800 text-right">
+                        CO {propagasi.rollover.coCount ?? "?"} santri • {propagasi.rollover.riwayatBaru ?? "?"} riwayat baru • {propagasi.rollover.mutasiCount ?? "?"} mutasi sakan
+                        {propagasi.rollover.sudahDilakukan ? " (hasil lama)" : ""}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => periksaStatus(periodeBerjalan.id)}
+                    disabled={memeriksaStatus}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 border border-sky-200 hover:bg-white/70 disabled:opacity-50"
+                  >
+                    {memeriksaStatus ? "Memeriksa..." : "Periksa Status"}
+                  </button>
+                  {(statusPropagasi?.siakadAktif ?? propagasi?.verifikasi?.siakadAktif) !== periodeBerjalan.namaDufah && (
+                    <button
+                      onClick={() => kirimUlang(periodeBerjalan.id)}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-blue-700 to-sky-500 hover:from-blue-800 hover:to-sky-600 shadow-lg shadow-blue-600/25"
+                    >
+                      Kirim Ulang ke Siakad
+                    </button>
+                  )}
+                  {propagasi?.rollover && !propagasi.rollover.ok && (
+                    <button
+                      onClick={() => cobaLagiPropagasi(periodeBerjalan.id)}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-blue-700 to-sky-500 hover:from-blue-800 hover:to-sky-600 shadow-lg shadow-blue-600/25"
+                    >
+                      Coba Lagi Propagasi
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1131,7 +1342,7 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
                     Aktivasi tidak bisa dibatalkan. Periode lama tetap tercatat di riwayat, tapi tidak bisa diaktifkan kembali.
                   </div>
                   <div className="bg-sky-50 border border-sky-200 rounded-xl px-3 py-2.5 text-sm text-blue-800 mb-4">
-                    Fase ini hanya mencatat di Bawwabah. Siakad dan PPDB belum berubah — aktivasi di sana tetap dilakukan manual seperti biasa sampai Fase 7.
+                    Menekan Aktifkan akan menggerakkan PPDB (rollover: auto-CO + migrasi + mutasi sakan), lalu Siakad mengikuti lewat webhook, dan E-Maliyah dibuatkan mapping-nya. Tanggal Usbu boleh kosong — bisa diisi belakangan, dan akan terkirim otomatis ke Siakad saat ditetapkan.
                   </div>
                   {aktivasiError && (
                     <p className="mb-3 text-sm bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2">{aktivasiError}</p>

@@ -414,6 +414,93 @@ export async function updateDraft(
   }
 }
 
+export interface UsbuInput {
+  usbu1StartDate?: string | null;
+  usbu1EndDate?: string | null;
+  usbu2StartDate?: string | null;
+  usbu2EndDate?: string | null;
+  usbu3StartDate?: string | null;
+  usbu3EndDate?: string | null;
+}
+
+/**
+ * Ubah tanggal Usbu saja — boleh pada draf ATAU pada periode BERJALAN
+ * (amandemen Fase 7 §1: tanggal Usbu diisi belakangan, di awal bulan,
+ * saat sudah pasti). Field lain (nama, tanggal pendaftaran, isTahunBaru)
+ * tetap tidak bisa diubah setelah aktif. Periode RIWAYAT (sudah tidak
+ * berjalan) tidak bisa diubah tanggal Usbunya. Mencatat audit `edit_usbu`.
+ * Pengiriman ke Siakad/E-Maliyah dilakukan pemanggil (route usbu), bukan
+ * di sini — fungsi ini hanya menyimpan.
+ */
+export async function updateUsbuDates(
+  id: string,
+  usbu: UsbuInput,
+  actor: { id: string; username: string }
+): Promise<Period> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      'SELECT * FROM periods WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (!rows.length) throw new PeriodError(404, "Periode tidak ada");
+    const lama = rowToPeriod(rows[0]);
+    if (lama.activatedAt !== null && !lama.isCurrent) {
+      throw new PeriodError(400, "Periode riwayat tidak bisa diubah tanggal Usbunya");
+    }
+    // Validasi memakai aturan yang sama dengan draf (pasangan mulai-selesai
+    // lengkap + terurut) dengan nilai lama untuk field non-Usbu.
+    const salah = validasiInput({
+      namaDufah: lama.namaDufah,
+      tanggalBuka: lama.tanggalBuka,
+      tanggalTutup: lama.tanggalTutup,
+      isTahunBaru: lama.isTahunBaru,
+      usbu1StartDate: usbu.usbu1StartDate ?? null,
+      usbu1EndDate: usbu.usbu1EndDate ?? null,
+      usbu2StartDate: usbu.usbu2StartDate ?? null,
+      usbu2EndDate: usbu.usbu2EndDate ?? null,
+      usbu3StartDate: usbu.usbu3StartDate ?? null,
+      usbu3EndDate: usbu.usbu3EndDate ?? null,
+    });
+    if (salah) throw new PeriodError(400, salah);
+    const { rows: baru } = await client.query(
+      `UPDATE periods SET
+        "usbu1StartDate" = $2, "usbu1EndDate" = $3,
+        "usbu2StartDate" = $4, "usbu2EndDate" = $5,
+        "usbu3StartDate" = $6, "usbu3EndDate" = $7
+      WHERE id = $1 RETURNING *`,
+      [
+        id,
+        normalisasiUsbu(usbu.usbu1StartDate),
+        normalisasiUsbu(usbu.usbu1EndDate),
+        normalisasiUsbu(usbu.usbu2StartDate),
+        normalisasiUsbu(usbu.usbu2EndDate),
+        normalisasiUsbu(usbu.usbu3StartDate),
+        normalisasiUsbu(usbu.usbu3EndDate),
+      ]
+    );
+    const periode = rowToPeriod(baru[0]);
+    await insertAuditLog(client, {
+      aktorId: actor.id,
+      aktorUsername: actor.username,
+      aksi: "edit_usbu",
+      targetId: periode.id,
+      detail:
+        `${ringkasanPeriode(periode)} — Usbu 1 ${periode.usbu1StartDate ?? "-"}–${periode.usbu1EndDate ?? "-"}, ` +
+        `Usbu 2 ${periode.usbu2StartDate ?? "-"}–${periode.usbu2EndDate ?? "-"}, ` +
+        `Usbu 3 ${periode.usbu3StartDate ?? "-"}–${periode.usbu3EndDate ?? "-"}`,
+    });
+    await client.query("COMMIT");
+    return periode;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 /** Hapus draf yang belum aktif. Baris aktif/riwayat tidak bisa dihapus. */
 export async function deleteDraft(
   id: string,
@@ -473,13 +560,10 @@ export async function activatePeriod(
         "Periode ini bukan draf — hanya draf yang bisa diaktifkan. Periode lama tidak bisa diaktifkan kembali."
       );
     }
-    const kosong = usbuYangKosong(draf);
-    if (kosong.length) {
-      throw new PeriodError(
-        400,
-        `Tanggal Usbu belum lengkap: ${kosong.join(", ")}. Lengkapi dulu sebelum mengaktifkan.`
-      );
-    }
+    // Fase 7: tanggal Usbu BOLEH kosong saat aktivasi. Usbu diisi
+    // belakangan (biasanya di awal bulan, saat sudah pasti) lewat
+    // updateUsbuDates; sync Usbu ke Siakad + mapping E-Maliyah menunggu
+    // sampai tanggal Usbu ditetapkan. Tidak ada gate kelengkapan di sini.
     // Kunci baris berjalan saat ini supaya dua aktivasi bersamaan tidak
     // menghasilkan dua periode berjalan.
     const berjalan = await client.query(
