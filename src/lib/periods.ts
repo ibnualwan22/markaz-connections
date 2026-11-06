@@ -36,6 +36,9 @@ export interface Period {
   activatedByUsername: string | null;
   createdAt: string; // ISO
   createdByUsername: string;
+  // Id baris Dufah di PPDB (INT di sana, disimpan sebagai teks di sini).
+  // NULL = draf belum tersinkron ke PPDB.
+  ppdbDufahId: number | null;
 }
 
 export interface PeriodInput {
@@ -97,6 +100,7 @@ function rowToPeriod(r: Record<string, unknown>): Period {
       r.activatedByUsername == null ? null : String(r.activatedByUsername),
     createdAt: asIso(r.createdAt) as string,
     createdByUsername: String(r.createdByUsername),
+    ppdbDufahId: r.ppdbDufahId == null ? null : Number(r.ppdbDufahId),
   };
 }
 
@@ -118,6 +122,22 @@ export async function getPeriodById(id: string): Promise<Period | null> {
   const { rows } = await getPool().query(
     "SELECT * FROM periods WHERE id = $1",
     [id]
+  );
+  return rows.length ? rowToPeriod(rows[0]) : null;
+}
+
+/**
+ * Simpan id baris Dufah PPDB pada satu periode (rancangan PPDB-pendaftaran).
+ * Dipakai setelah Bawwabah membuat/menemukan baris dufah di PPDB — supaya
+ * rollover berikutnya memakai id ini, bukan lagi pencocokan nama.
+ */
+export async function simpanPpdbDufahId(
+  id: string,
+  ppdbDufahId: number | null
+): Promise<Period | null> {
+  const { rows } = await getPool().query(
+    'UPDATE periods SET "ppdbDufahId" = $2 WHERE id = $1 RETURNING *',
+    [id, ppdbDufahId == null ? null : String(ppdbDufahId)]
   );
   return rows.length ? rowToPeriod(rows[0]) : null;
 }

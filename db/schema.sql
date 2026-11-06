@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS periods (
   "activatedByUsername" text,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "createdByUsername" text NOT NULL,
+  -- Id baris Dufah di PPDB (rancangan PPDB-pendaftaran, 6 Nov 2026).
+  -- Diisi saat draf dibuat (Bawwabah memanggil POST /api/bawwabah/dufah);
+  -- rollover memakai id ini, bukan lagi pencocokan nama. NULL = draf
+  -- belum tersinkron ke PPDB (coba lagi dari tombol di kartu draf).
+  "ppdbDufahId" text,
   CONSTRAINT periods_tutup_sesudah_buka CHECK ("tanggalTutup" > "tanggalBuka"),
   CONSTRAINT periods_usbu1_urut CHECK ("usbu1EndDate" IS NULL OR "usbu1StartDate" IS NULL OR "usbu1EndDate" > "usbu1StartDate"),
   CONSTRAINT periods_usbu2_urut CHECK ("usbu2EndDate" IS NULL OR "usbu2StartDate" IS NULL OR "usbu2EndDate" > "usbu2StartDate"),

@@ -10,6 +10,7 @@ import {
   PeriodError,
   type PeriodInput,
 } from "@/lib/periods";
+import { sinkronDufahKePPDB } from "@/lib/propagate";
 
 function bacaInput(body: unknown): PeriodInput {
   const b = (body || {}) as Record<string, unknown>;
@@ -60,7 +61,17 @@ export async function POST(req: Request) {
       targetId: periode.id,
       detail: ringkasanPeriode(periode),
     });
-    return NextResponse.json({ periode });
+    // Buat baris dufah di PPDB — SETELAH transaksi draf komit (PPDB sistem
+    // lain). Gagal TIDAK membatalkan draf: ppdbDufahId tetap null dan UI
+    // menampilkan "belum tersinkron ke PPDB" + tombol coba lagi.
+    const ppdb = await sinkronDufahKePPDB(periode, {
+      id: s.user.id,
+      username: s.user.username,
+    });
+    if (ppdb.ok && typeof ppdb.dufahId === "number") {
+      periode.ppdbDufahId = ppdb.dufahId;
+    }
+    return NextResponse.json({ periode, ppdb });
   } catch (e) {
     if (e instanceof PeriodError) {
       return NextResponse.json({ error: e.message }, { status: e.status });

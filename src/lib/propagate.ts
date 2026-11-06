@@ -14,7 +14,7 @@
 //   EMALIYAH_URL  (env) atau https://e-maliyah.markazarabiyah.site
 // Kunci: env BAWABAH_API_KEY — header `x-bawwabah-key` (PPDB/Siakad),
 // header `x-webhook-secret` (E-Maliyah, mengikuti pola webhook-nya).
-import { getPool, insertAuditLog, type Period } from "./periods";
+import { getPool, insertAuditLog, simpanPpdbDufahId, type Period } from "./periods";
 import { appendAudit } from "./audit";
 
 const PPDB_URL = process.env.PPDB_URL || "https://ppdb.markazarabiyah.site";
@@ -34,7 +34,7 @@ export interface LangkahHasil {
 }
 
 export interface HasilPropagasi {
-  /** Dufah ditemukan di PPDB (berdasarkan nama persis). */
+  /** Id baris Dufah di PPDB (dari ppdbDufahId tersimpan, atau fallback cari nama). */
   ppdbDufahId: number | null;
   /** Hasil panggilan rollover PPDB (null bila tidak dipanggil). */
   rollover: (LangkahHasil & { sudahDilakukan?: boolean }) | null;
@@ -105,7 +105,8 @@ async function catatPropagasi(
   }
 }
 
-/** Cari id baris Dufah di PPDB berdasarkan nama persis. */
+/** Cari id baris Dufah di PPDB berdasarkan nama persis (fallback — dipakai
+ * hanya bila periode belum punya ppdbDufahId tersimpan). */
 export async function cariDufahIdPPDB(
   namaDufah: string
 ): Promise<{ id: number | null; error?: string }> {
@@ -122,6 +123,70 @@ export async function cariDufahIdPPDB(
       id: null,
       error: e instanceof Error ? e.message : "PPDB tidak dapat dijangkau",
     };
+  }
+}
+
+/**
+ * Buat baris Dufah di PPDB untuk satu draf Bawwabah (rancangan
+ * PPDB-pendaftaran). Dipanggil SETELAH draf tersimpan (transaksi Bawwabah
+ * sudah komit) — PPDB sistem lain, tidak boleh di transaksi yang sama.
+ * Gagal TIDAK menggagalkan pembuatan draf: ppdbDufahId tetap null dan
+ * pemanggil menampilkan status "belum tersinkron ke PPDB" + tombol coba
+ * lagi. Id baris PPDB yang berhasil dibuat disimpan ke periods.
+ */
+export async function sinkronDufahKePPDB(
+  periode: Period,
+  actor: Aktor
+): Promise<LangkahHasil & { dufahId?: number; sudahAda?: boolean }> {
+  const key = kunciBawwabah();
+  if (!key) return { ok: false, error: "BAWABAH_API_KEY belum disetel" };
+  try {
+    const res = await fetchBatas(
+      `${PPDB_URL}/api/bawwabah/dufah`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bawwabah-key": key,
+        },
+        body: JSON.stringify({
+          bawwabahPeriodId: periode.id,
+          nama: periode.namaDufah,
+          tanggalBuka: periode.tanggalBuka,
+          tanggalTutup: periode.tanggalTutup,
+          isTahunBaru: periode.isTahunBaru,
+        }),
+      },
+      15_000
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const pesan =
+        typeof data.error === "string"
+          ? data.error
+          : `PPDB menjawab HTTP ${res.status}`;
+      await catatPropagasi(actor, "sync_ppdb_dufah_gagal", periode.id, `${periode.namaDufah}: ${pesan}`);
+      return { ok: false, error: pesan };
+    }
+    const dufahId = typeof data.dufahId === "number" ? data.dufahId : null;
+    if (dufahId !== null) {
+      await simpanPpdbDufahId(periode.id, dufahId).catch(() => undefined);
+    }
+    await catatPropagasi(
+      actor,
+      "sync_ppdb_dufah_ok",
+      periode.id,
+      `${periode.namaDufah}: baris PPDB id ${dufahId ?? "?"}${data.sudahAda ? " (sudah ada — dipakai ulang)" : " dibuat"}`
+    );
+    return {
+      ok: true,
+      dufahId: dufahId ?? undefined,
+      sudahAda: data.sudahAda === true,
+    };
+  } catch (e) {
+    const pesan = e instanceof Error ? e.message : "PPDB tidak dapat dijangkau";
+    await catatPropagasi(actor, "sync_ppdb_dufah_gagal", periode.id, `${periode.namaDufah}: ${pesan}`);
+    return { ok: false, error: pesan };
   }
 }
 
@@ -445,7 +510,19 @@ export async function jalankanPropagasi(
     emaliyah: null,
   };
 
-  const cari = await cariDufahIdPPDB(periode.namaDufah);
+  // Id baris PPDB: pakai ppdbDufahId tersimpan (rancangan PPDB-pendaftaran).
+  // Bila belum ada (draf lama / sync gagal), fallback cari by-nama lalu
+  // simpan id yang ketemu supaya aktivasi berikutnya tidak perlu cocok
+  // nama lagi.
+  let cari: { id: number | null; error?: string };
+  if (periode.ppdbDufahId !== null && periode.ppdbDufahId !== undefined) {
+    cari = { id: periode.ppdbDufahId };
+  } else {
+    cari = await cariDufahIdPPDB(periode.namaDufah);
+    if (cari.id !== null) {
+      await simpanPpdbDufahId(periode.id, cari.id).catch(() => undefined);
+    }
+  }
   hasil.ppdbDufahId = cari.id;
   if (cari.id === null) {
     hasil.rollover = { ok: false, error: cari.error ?? "Dufah tidak ditemukan di PPDB" };

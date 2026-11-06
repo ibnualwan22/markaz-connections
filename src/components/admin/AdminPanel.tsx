@@ -62,6 +62,8 @@ interface Period {
   activatedByUsername: string | null;
   createdAt: string;
   createdByUsername: string;
+  // Id baris Dufah di PPDB (null = draf belum tersinkron ke PPDB).
+  ppdbDufahId: number | null;
 }
 interface NextNumbers {
   noDufah: number;
@@ -121,6 +123,7 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
   const [terdampak, setTerdampak] = useState<number | null>(null);
   const [aktivasiError, setAktivasiError] = useState("");
   const [mengaktifkan, setMengaktifkan] = useState(false);
+  const [menyinkronPpdb, setMenyinkronPpdb] = useState(false);
 
   // Fase 7: hasil propagasi aktivasi terakhir + status live + edit Usbu.
   const [propagasi, setPropagasi] = useState<any>(null);
@@ -351,7 +354,11 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
       usbu3StartDate: "", usbu3EndDate: "",
     });
     muat();
-    info("Draf periode dibuat");
+    if (data.ppdb && !data.ppdb.ok) {
+      info("Draf periode dibuat, tapi belum tersinkron ke PPDB — coba lagi dari kartu draf.");
+    } else {
+      info("Draf periode dibuat");
+    }
   }
 
   function bukaEditDraft(p: Period) {
@@ -454,6 +461,19 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
     setPropagasi(data.propagasi || null);
     periksaStatus(id);
     info("Propagasi dicoba lagi — lihat status di bawah.");
+  }
+
+  // Coba lagi membuat baris Dufah di PPDB untuk satu draf (rancangan
+  // PPDB-pendaftaran). Dipakai bila draf dibuat saat PPDB tidak terjangkau.
+  async function cobaLagiSyncPpdb(id: string) {
+    setMenyinkronPpdb(true);
+    const res = await fetch(`/api/admin/periods/${id}/sync-ppdb`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    setMenyinkronPpdb(false);
+    if (!res.ok) return info("Gagal: " + (data.error || "ditolak"));
+    muat();
+    if (data.ppdb?.ok) info("Draf tersinkron ke PPDB.");
+    else info("Masih gagal: " + (data.ppdb?.error || "tidak diketahui"));
   }
 
   async function kirimUlang(id: string) {
@@ -1191,6 +1211,11 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
                 <p className="text-sm text-slate-600">
                   Usbu 1: {tampilUsbu(drafPeriode, 1)} • Usbu 2: {tampilUsbu(drafPeriode, 2)} • Usbu 3: {tampilUsbu(drafPeriode, 3)}
                 </p>
+                <p className="text-sm text-slate-600">
+                  PPDB: {drafPeriode.ppdbDufahId !== null
+                    ? `✓ tersinkron (baris PPDB id ${drafPeriode.ppdbDufahId})`
+                    : "⚠ belum tersinkron ke PPDB — pendaftaran tidak bisa dibuka sampai tersinkron"}
+                </p>
                 <div className="flex flex-wrap gap-2 mt-4">
                   <button
                     onClick={() => bukaKonfirmasi(drafPeriode)}
@@ -1198,6 +1223,15 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
                   >
                     Aktifkan Periode
                   </button>
+                  {drafPeriode.ppdbDufahId === null && (
+                    <button
+                      onClick={() => cobaLagiSyncPpdb(drafPeriode.id)}
+                      disabled={menyinkronPpdb}
+                      className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 shadow-lg shadow-amber-600/25 disabled:opacity-50"
+                    >
+                      {menyinkronPpdb ? "Menyinkronkan..." : "Sinkronkan ke PPDB"}
+                    </button>
+                  )}
                   <button
                     onClick={() => bukaEditDraft(drafPeriode)}
                     className="px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-sky-200 hover:bg-white/70"
