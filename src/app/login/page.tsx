@@ -51,7 +51,7 @@ function FormLogin() {
         <div className="w-24 h-24 mb-5 drop-shadow-xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/images/markaz-connection.png"
+            src="/images/logo-bawwabah.png"
             alt="Bawwabah"
             className="w-full h-full object-contain"
           />

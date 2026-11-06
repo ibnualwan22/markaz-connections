@@ -8,3 +8,23 @@ services:
       - "3004:3000"
     volumes:
       - ./data:/app/data
+    depends_on:
+      - db
+
+  # Fase 4: database periode Bawwabah (Postgres mengikuti pola web lain).
+  # Hanya localhost (127.0.0.1:5438); password dari BAWABAH_DB_PASSWORD di .env.
+  db:
+    image: postgres:16-alpine
+    container_name: bawwabah-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bawwabah
+      POSTGRES_PASSWORD: ${BAWABAH_DB_PASSWORD}
+      POSTGRES_DB: bawwabah
+    ports:
+      - "127.0.0.1:5438:5432"
+    volumes:
+      - bawwabah-db-data:/var/lib/postgresql/data
+
+volumes:
+  bawwabah-db-data:

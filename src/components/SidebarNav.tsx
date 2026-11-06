@@ -15,6 +15,7 @@ import {
   KeyRound,
   ShieldCheck,
   ScrollText,
+  CalendarDays,
   LogOut,
   Menu,
   X,
@@ -39,8 +40,8 @@ export default function SidebarNav({ user }: { user: SidebarUser }) {
     .join("")
     .toUpperCase();
 
-  // Menu admin pecahan (Akun, Website, Akses, Role, Audit) rata sejajar
-  // dengan menu lain — hanya superadmin yang melihatnya.
+  // Menu admin pecahan (Akun, Website, Akses, Role, Audit, Periode) rata
+  // sejajar dengan menu lain — hanya superadmin yang melihatnya.
   const menu = [
     { href: "/dashboard", label: "Dashboard", ikon: LayoutDashboard },
     { href: "/profil", label: "Profil", ikon: User },
@@ -51,6 +52,7 @@ export default function SidebarNav({ user }: { user: SidebarUser }) {
           { href: "/akses", label: "Akses", ikon: KeyRound },
           { href: "/role", label: "Role", ikon: ShieldCheck },
           { href: "/audit", label: "Audit", ikon: ScrollText },
+          { href: "/periode", label: "Periode", ikon: CalendarDays },
         ]
       : []),
   ];

@@ -41,7 +41,7 @@ export default async function Home() {
           <div className="mx-auto mb-7 w-70 h-70 drop-shadow-xl">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/images/markaz-connection.png"
+              src="/images/logo-bawwabah.png"
               alt="Bawwabah Logo"
               className="w-full h-full object-contain"
             />

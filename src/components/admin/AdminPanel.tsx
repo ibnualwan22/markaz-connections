@@ -42,8 +42,35 @@ interface App {
   kategori: string;
   status?: string;
 }
+interface Period {
+  id: string;
+  namaDufah: string;
+  noDufah: number;
+  noMarhalah: number;
+  noNukhbah: number;
+  tanggalBuka: string;
+  tanggalTutup: string;
+  isTahunBaru: boolean;
+  usbu1StartDate: string | null;
+  usbu1EndDate: string | null;
+  usbu2StartDate: string | null;
+  usbu2EndDate: string | null;
+  usbu3StartDate: string | null;
+  usbu3EndDate: string | null;
+  isCurrent: boolean;
+  activatedAt: string | null;
+  activatedByUsername: string | null;
+  createdAt: string;
+  createdByUsername: string;
+}
+interface NextNumbers {
+  noDufah: number;
+  noMarhalah: number;
+  noNukhbah: number;
+  namaDufah: string;
+}
 
-export type AdminTab = "user" | "app" | "akses" | "audit" | "role";
+export type AdminTab = "user" | "app" | "akses" | "audit" | "role" | "periode";
 
 const JUDUL_TAB: Record<AdminTab, string> = {
   user: "Akun",
@@ -51,6 +78,7 @@ const JUDUL_TAB: Record<AdminTab, string> = {
   akses: "Akses",
   role: "Role",
   audit: "Audit",
+  periode: "Periode",
 };
 
 // Panel admin: satu komponen untuk lima halaman pecahan (/akun, /website,
@@ -75,8 +103,27 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
   const [editAppForm, setEditAppForm] = useState({ nama: "", url: "", deskripsi: "", logo: "", ikon: "Globe", kategori: "", status: "" });
   const [pesan, setPesan] = useState("");
 
+  // Periode (Fase 4): daftar + nomor berikutnya + form draf + dialog aktivasi.
+  const [periods, setPeriods] = useState<Period[]>([]);
+  const [nextInfo, setNextInfo] = useState<NextNumbers | null>(null);
+  const [pBaru, setPBaru] = useState({
+    namaDufah: "", tanggalBuka: "", tanggalTutup: "", isTahunBaru: false,
+    usbu1StartDate: "", usbu1EndDate: "", usbu2StartDate: "", usbu2EndDate: "",
+    usbu3StartDate: "", usbu3EndDate: "",
+  });
+  const [editDraft, setEditDraft] = useState<Period | null>(null);
+  const [editDraftForm, setEditDraftForm] = useState({
+    namaDufah: "", tanggalBuka: "", tanggalTutup: "", isTahunBaru: false,
+    usbu1StartDate: "", usbu1EndDate: "", usbu2StartDate: "", usbu2EndDate: "",
+    usbu3StartDate: "", usbu3EndDate: "",
+  });
+  const [konfirmasi, setKonfirmasi] = useState<Period | null>(null);
+  const [terdampak, setTerdampak] = useState<number | null>(null);
+  const [aktivasiError, setAktivasiError] = useState("");
+  const [mengaktifkan, setMengaktifkan] = useState(false);
+
   async function muat() {
-    const [ru, ra, rg, rm, rad, rr, rur] = await Promise.all([
+    const [ru, ra, rg, rm, rad, rr, rur, rp, rs] = await Promise.all([
       fetch("/api/admin/users").then((r) => r.json()),
       fetch("/api/admin/apps").then((r) => r.json()),
       fetch("/api/admin/grants").then((r) => r.json()),
@@ -84,6 +131,9 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
       fetch("/api/admin/audit").then((r) => r.json()),
       fetch("/api/admin/roles").then((r) => r.json()),
       fetch("/api/admin/user-roles").then((r) => r.json()),
+      // Periode: gagal muat (mis. DB mati) tidak boleh merusak panel lain.
+      fetch("/api/admin/periods").then((r) => r.json()).catch(() => ({})),
+      fetch("/api/admin/periods/stats").then((r) => r.json()).catch(() => ({})),
     ]);
     setUsers(ru.users || []);
     setApps(ra.apps || []);
@@ -92,11 +142,23 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
     setAudit(rad.audit || []);
     setRoles(rr.roles || []);
     setUserRoles(rur.userRoles || {});
+    setPeriods(rp.periods || []);
+    setNextInfo(rp.next || null);
+    setTerdampak(typeof rs.terdampak === "number" ? rs.terdampak : null);
   }
 
   useEffect(() => {
     muat();
   }, []);
+
+  // Auto-isi nama dufah berikutnya saat form buat masih kosong.
+  useEffect(() => {
+    if (!nextInfo) return;
+    const adaDraf = periods.some((p) => !p.activatedAt);
+    if (!adaDraf && pBaru.namaDufah === "") {
+      setPBaru((f) => (f.namaDufah === "" ? { ...f, namaDufah: nextInfo.namaDufah } : f));
+    }
+  }, [nextInfo, periods, pBaru.namaDufah]);
 
   function info(t: string) {
     setPesan(t);
@@ -248,9 +310,248 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
     });
   }
 
+  // ---- Periode (Fase 4) ----
+  function bentukBodyPeriode(f: typeof pBaru) {
+    return {
+      namaDufah: f.namaDufah,
+      tanggalBuka: lokalKeIso(f.tanggalBuka),
+      tanggalTutup: lokalKeIso(f.tanggalTutup),
+      isTahunBaru: f.isTahunBaru,
+      usbu1StartDate: f.usbu1StartDate || null,
+      usbu1EndDate: f.usbu1EndDate || null,
+      usbu2StartDate: f.usbu2StartDate || null,
+      usbu2EndDate: f.usbu2EndDate || null,
+      usbu3StartDate: f.usbu3StartDate || null,
+      usbu3EndDate: f.usbu3EndDate || null,
+    };
+  }
+
+  async function tambahPeriode(e: React.FormEvent) {
+    e.preventDefault();
+    const res = await fetch("/api/admin/periods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bentukBodyPeriode(pBaru)),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return info("Gagal: " + (data.error || "ditolak"));
+    setPBaru({
+      namaDufah: "", tanggalBuka: "", tanggalTutup: "", isTahunBaru: false,
+      usbu1StartDate: "", usbu1EndDate: "", usbu2StartDate: "", usbu2EndDate: "",
+      usbu3StartDate: "", usbu3EndDate: "",
+    });
+    muat();
+    info("Draf periode dibuat");
+  }
+
+  function bukaEditDraft(p: Period) {
+    setEditDraft(p);
+    setEditDraftForm({
+      namaDufah: p.namaDufah,
+      tanggalBuka: isoKeLokal(p.tanggalBuka),
+      tanggalTutup: isoKeLokal(p.tanggalTutup),
+      isTahunBaru: p.isTahunBaru,
+      usbu1StartDate: p.usbu1StartDate || "",
+      usbu1EndDate: p.usbu1EndDate || "",
+      usbu2StartDate: p.usbu2StartDate || "",
+      usbu2EndDate: p.usbu2EndDate || "",
+      usbu3StartDate: p.usbu3StartDate || "",
+      usbu3EndDate: p.usbu3EndDate || "",
+    });
+  }
+
+  async function simpanEditDraft(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editDraft) return;
+    const res = await fetch(`/api/admin/periods/${editDraft.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bentukBodyPeriode(editDraftForm)),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return info("Gagal: " + (data.error || "ditolak"));
+    setEditDraft(null);
+    muat();
+    info("Draf periode diperbarui");
+  }
+
+  async function hapusDraft(p: Period) {
+    if (!confirm(`Hapus draf ${p.namaDufah}? Draf yang sudah dihapus tidak bisa dikembalikan.`)) return;
+    const res = await fetch(`/api/admin/periods/${p.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return info("Gagal: " + (data.error || "ditolak"));
+    muat();
+    info("Draf dihapus");
+  }
+
+  async function bukaKonfirmasi(p: Period) {
+    setAktivasiError("");
+    setKonfirmasi(p);
+    // Baca ulang jumlah terdampak supaya angka di dialog selalu segar.
+    const rs = await fetch("/api/admin/periods/stats").then((r) => r.json()).catch(() => ({}));
+    setTerdampak(typeof rs.terdampak === "number" ? rs.terdampak : null);
+  }
+
+  async function jalankanAktivasi() {
+    if (!konfirmasi) return;
+    setMengaktifkan(true);
+    setAktivasiError("");
+    const res = await fetch(`/api/admin/periods/${konfirmasi.id}/activate`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    setMengaktifkan(false);
+    if (!res.ok) {
+      setAktivasiError(data.error || "Gagal mengaktifkan periode");
+      return;
+    }
+    setKonfirmasi(null);
+    muat();
+    info(`Periode ${data.periode.namaDufah} diaktifkan di Bawwabah. Siakad/PPDB masih harus diaktifkan manual seperti biasa.`);
+  }
+
   const input =
     "w-full border border-sky-200 rounded-xl px-3 py-2 text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-blue-600";
   const kartu = "bg-white/75 backdrop-blur-sm border border-sky-100 rounded-2xl shadow-xl shadow-sky-200/40";
+
+  // ---- Pembantu tanggal periode (semua waktu ditampilkan dalam WIB) ----
+  function tampilTanggalWIB(iso: string) {
+    return new Date(iso).toLocaleString("id-ID", {
+      timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+  function tampilTanggalSaja(tgl: string) {
+    return new Date(tgl + "T00:00:00+07:00").toLocaleDateString("id-ID", {
+      timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric",
+    });
+  }
+  function isoKeLokal(iso: string) {
+    // ISO -> "YYYY-MM-DDTHH:mm" dalam WIB (untuk input datetime-local).
+    const d = new Date(iso);
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    });
+    const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value]));
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+  }
+  function lokalKeIso(lokal: string) {
+    // "YYYY-MM-DDTHH:mm" (yang diketik admin = WIB) -> ISO ber-offset +07:00.
+    if (!lokal) return "";
+    return lokal.length === 16 ? `${lokal}:00+07:00` : lokal;
+  }
+
+  const periodeBerjalan = periods.find((p) => p.isCurrent);
+  const drafPeriode = periods.find((p) => !p.activatedAt);
+
+  function tampilMasa(p: Period) {
+    if (p.usbu1StartDate && p.usbu3EndDate) {
+      return `${tampilTanggalSaja(p.usbu1StartDate)} s.d. ${tampilTanggalSaja(p.usbu3EndDate)}`;
+    }
+    if (p.usbu1StartDate || p.usbu2StartDate || p.usbu3StartDate) return "belum lengkap";
+    return "-";
+  }
+
+  function tampilUsbu(p: Period, n: 1 | 2 | 3) {
+    const mulai = n === 1 ? p.usbu1StartDate : n === 2 ? p.usbu2StartDate : p.usbu3StartDate;
+    const selesai = n === 1 ? p.usbu1EndDate : n === 2 ? p.usbu2EndDate : p.usbu3EndDate;
+    if (!mulai || !selesai) return "-";
+    return `${tampilTanggalSaja(mulai)} – ${tampilTanggalSaja(selesai)}`;
+  }
+
+  // Form draf periode — dipakai form buat dan form edit (field sama).
+  function formPeriode(
+    f: typeof pBaru,
+    setF: (v: typeof pBaru) => void,
+    noMarhalah: number | "",
+    noNukhbah: number | "",
+    namaOtomatis: string
+  ) {
+    return (
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-3 gap-3">
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-600">Nama Dufah</span>
+            <input className={input} value={f.namaDufah} onChange={(e) => setF({ ...f, namaDufah: e.target.value })} required />
+            <span className="text-[11px] text-slate-400">
+              Otomatis terisi {namaOtomatis || "-"}; masih bisa diubah.
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-600">Marhalah (otomatis)</span>
+            <input className={input} value={noMarhalah} disabled />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-600">Nukhbah (otomatis)</span>
+            <input className={input} value={noNukhbah} disabled />
+          </label>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-600">Buka Pendaftaran (WIB)</span>
+            <input className={input} type="datetime-local" value={f.tanggalBuka} onChange={(e) => setF({ ...f, tanggalBuka: e.target.value })} required />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-600">Tutup Pendaftaran (WIB)</span>
+            <input className={input} type="datetime-local" value={f.tanggalTutup} onChange={(e) => setF({ ...f, tanggalTutup: e.target.value })} required />
+          </label>
+        </div>
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            className="w-4 h-4 accent-blue-700 mt-0.5"
+            checked={f.isTahunBaru}
+            onChange={(e) => setF({ ...f, isTahunBaru: e.target.checked })}
+          />
+          <span>
+            <span className="font-semibold">Tahun Baru (reset Syawal)</span>
+            <span className="block text-xs text-slate-500">
+              Bila dicentang: bulanKe semua santri direset ke 1 dan semua santri non-KSU wajib pindah sakan saat aktivasi di PPDB.
+            </span>
+          </span>
+        </label>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-2">
+            Tanggal Usbu (boleh kosong saat membuat draf, wajib lengkap saat aktivasi)
+          </p>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div className="border border-sky-100 rounded-xl p-3 bg-white/60">
+              <p className="text-xs font-bold text-slate-700 mb-2">Usbu 1</p>
+              <label className="block mb-2">
+                <span className="text-xs text-slate-500">Mulai</span>
+                <input className={input} type="date" value={f.usbu1StartDate} onChange={(e) => setF({ ...f, usbu1StartDate: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className="text-xs text-slate-500">Selesai</span>
+                <input className={input} type="date" value={f.usbu1EndDate} onChange={(e) => setF({ ...f, usbu1EndDate: e.target.value })} />
+              </label>
+            </div>
+            <div className="border border-sky-100 rounded-xl p-3 bg-white/60">
+              <p className="text-xs font-bold text-slate-700 mb-2">Usbu 2</p>
+              <label className="block mb-2">
+                <span className="text-xs text-slate-500">Mulai</span>
+                <input className={input} type="date" value={f.usbu2StartDate} onChange={(e) => setF({ ...f, usbu2StartDate: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className="text-xs text-slate-500">Selesai</span>
+                <input className={input} type="date" value={f.usbu2EndDate} onChange={(e) => setF({ ...f, usbu2EndDate: e.target.value })} />
+              </label>
+            </div>
+            <div className="border border-sky-100 rounded-xl p-3 bg-white/60">
+              <p className="text-xs font-bold text-slate-700 mb-2">Usbu 3</p>
+              <label className="block mb-2">
+                <span className="text-xs text-slate-500">Mulai</span>
+                <input className={input} type="date" value={f.usbu3StartDate} onChange={(e) => setF({ ...f, usbu3StartDate: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className="text-xs text-slate-500">Selesai</span>
+                <input className={input} type="date" value={f.usbu3EndDate} onChange={(e) => setF({ ...f, usbu3EndDate: e.target.value })} />
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-sky-50 to-blue-100">
@@ -630,6 +931,231 @@ export default function AdminPanel({ tab }: { tab: AdminTab }) {
               </table>
             </div>
           </div>
+        )}
+
+        {tab === "periode" && (
+          <>
+            {periodeBerjalan && (
+              <div className={`${kartu} p-5 mb-6`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-bold text-slate-800">Periode Berjalan</h3>
+                  <span className="text-xs font-semibold bg-blue-700 text-white rounded-full px-3 py-1">Berjalan</span>
+                </div>
+                <p className="text-lg font-extrabold text-blue-800">
+                  {periodeBerjalan.namaDufah}
+                  <span className="text-sm font-semibold text-slate-500">
+                    {" "}/ Marhalah {periodeBerjalan.noMarhalah} / Nukhbah {periodeBerjalan.noNukhbah}
+                  </span>
+                </p>
+                <p className="text-sm text-slate-600 mt-1">
+                  Pendaftaran: {tampilTanggalWIB(periodeBerjalan.tanggalBuka)} s.d. {tampilTanggalWIB(periodeBerjalan.tanggalTutup)}
+                  {periodeBerjalan.isTahunBaru ? " • Tahun Baru (reset Syawal)" : ""}
+                </p>
+                <p className="text-sm text-slate-600">
+                  Usbu 1: {tampilUsbu(periodeBerjalan, 1)} • Usbu 2: {tampilUsbu(periodeBerjalan, 2)} • Usbu 3: {tampilUsbu(periodeBerjalan, 3)}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Masa periode: {tampilMasa(periodeBerjalan)}
+                  {periodeBerjalan.activatedByUsername ? ` • Diaktifkan oleh ${periodeBerjalan.activatedByUsername}` : ""}
+                </p>
+              </div>
+            )}
+
+            {drafPeriode && !editDraft && (
+              <div className={`${kartu} p-5 mb-6`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-bold text-slate-800">Draf Periode Berikutnya</h3>
+                  <span className="text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-3 py-1">Draf</span>
+                </div>
+                <p className="text-lg font-extrabold text-slate-800">
+                  {drafPeriode.namaDufah}
+                  <span className="text-sm font-semibold text-slate-500">
+                    {" "}/ Marhalah {drafPeriode.noMarhalah} / Nukhbah {drafPeriode.noNukhbah}
+                  </span>
+                </p>
+                <p className="text-sm text-slate-600 mt-1">
+                  Pendaftaran: {tampilTanggalWIB(drafPeriode.tanggalBuka)} s.d. {tampilTanggalWIB(drafPeriode.tanggalTutup)}
+                  {drafPeriode.isTahunBaru ? " • Tahun Baru (reset Syawal)" : ""}
+                </p>
+                <p className="text-sm text-slate-600">
+                  Usbu 1: {tampilUsbu(drafPeriode, 1)} • Usbu 2: {tampilUsbu(drafPeriode, 2)} • Usbu 3: {tampilUsbu(drafPeriode, 3)}
+                </p>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <button
+                    onClick={() => bukaKonfirmasi(drafPeriode)}
+                    className="bg-gradient-to-r from-blue-700 to-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:from-blue-800 hover:to-sky-600 shadow-lg shadow-blue-600/25"
+                  >
+                    Aktifkan Periode
+                  </button>
+                  <button
+                    onClick={() => bukaEditDraft(drafPeriode)}
+                    className="px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-sky-200 hover:bg-white/70"
+                  >
+                    Edit Draf
+                  </button>
+                  <button
+                    onClick={() => hapusDraft(drafPeriode)}
+                    className="px-5 py-2.5 rounded-xl text-sm font-semibold text-red-600 border border-red-200 hover:bg-red-50"
+                  >
+                    Hapus Draf
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {drafPeriode && editDraft && (
+              <form onSubmit={simpanEditDraft} className={`${kartu} p-5 mb-6`}>
+                <h3 className="font-bold text-slate-800 mb-3">Edit Draf: {editDraft.namaDufah}</h3>
+                {formPeriode(editDraftForm, setEditDraftForm, editDraft.noMarhalah, editDraft.noNukhbah, nextInfo?.namaDufah || "")}
+                <div className="flex gap-2 mt-4">
+                  <button className="bg-gradient-to-r from-blue-700 to-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:from-blue-800 hover:to-sky-600 shadow-lg shadow-blue-600/25">
+                    Simpan
+                  </button>
+                  <button type="button" onClick={() => setEditDraft(null)} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-white/70">
+                    Batal
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {!drafPeriode && (
+              <form onSubmit={tambahPeriode} className={`${kartu} p-5 mb-6`}>
+                <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-1.5">
+                  <Plus size={16} /> Buat Draf Periode Baru
+                </h3>
+                {formPeriode(pBaru, setPBaru, nextInfo?.noMarhalah ?? "", nextInfo?.noNukhbah ?? "", nextInfo?.namaDufah || "")}
+                <button className="w-full mt-4 bg-gradient-to-r from-blue-700 to-sky-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-blue-800 hover:to-sky-600 shadow-lg shadow-blue-600/25">
+                  Simpan Draf
+                </button>
+              </form>
+            )}
+            {drafPeriode && !editDraft && (
+              <p className="text-xs text-slate-500 mb-6">
+                Sudah ada satu draf periode. Selesaikan dulu draf tersebut (aktifkan atau hapus) sebelum membuat yang baru.
+              </p>
+            )}
+
+            <div className={`${kartu} overflow-x-auto`}>
+              <table className="w-full text-sm min-w-[600px]">
+                <thead className="bg-sky-50/70 text-left">
+                  <tr>
+                    <th className="px-4 py-2.5 font-semibold text-slate-700">Periode</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-700">Pendaftaran (WIB)</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-700">Masa Periode</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-700">Status</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-700">Diaktifkan oleh</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {periods.map((p) => (
+                    <tr key={p.id} className="border-t border-sky-100/60">
+                      <td className="px-4 py-2.5 font-medium text-slate-800">
+                        {p.namaDufah}
+                        <span className="text-slate-500 text-xs"> / M{p.noMarhalah} / N{p.noNukhbah}</span>
+                        {p.isTahunBaru && (
+                          <span className="ml-1 text-[10px] font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5">Tahun Baru</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">
+                        {tampilTanggalWIB(p.tanggalBuka)} s.d. {tampilTanggalWIB(p.tanggalTutup)}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{tampilMasa(p)}</td>
+                      <td className="px-4 py-2.5">
+                        {p.isCurrent ? (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-700 text-white">Berjalan</span>
+                        ) : !p.activatedAt ? (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">Draf</span>
+                        ) : (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Riwayat</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500">{p.activatedByUsername || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {periods.length === 0 && (
+                <p className="text-sm text-slate-500 px-4 py-6 text-center">Belum ada periode tercatat.</p>
+              )}
+              <p className="text-xs text-slate-500 px-4 py-3 border-t border-sky-100/60">
+                Riwayat hanya untuk dilihat — periode lama tidak bisa diaktifkan kembali.
+              </p>
+            </div>
+
+            {konfirmasi && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+                  <h3 className="font-bold text-slate-800 text-lg mb-1">Aktifkan {konfirmasi.namaDufah}?</h3>
+                  <p className="text-sm text-slate-600 mb-4">
+                    Marhalah {konfirmasi.noMarhalah} / Nukhbah {konfirmasi.noNukhbah}
+                  </p>
+                  <dl className="text-sm space-y-2 mb-4">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Nama Dufah</dt>
+                      <dd className="font-medium text-slate-800">{konfirmasi.namaDufah}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Pendaftaran</dt>
+                      <dd className="font-medium text-slate-800 text-right">
+                        {tampilTanggalWIB(konfirmasi.tanggalBuka)} s.d. {tampilTanggalWIB(konfirmasi.tanggalTutup)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Tahun Baru</dt>
+                      <dd className="font-medium text-slate-800 text-right">
+                        {konfirmasi.isTahunBaru
+                          ? "Ya — bulanKe direset ke 1, semua santri non-KSU wajib pindah sakan saat aktivasi di PPDB"
+                          : "Tidak"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Usbu 1</dt>
+                      <dd className="font-medium text-slate-800">{tampilUsbu(konfirmasi, 1)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Usbu 2</dt>
+                      <dd className="font-medium text-slate-800">{tampilUsbu(konfirmasi, 2)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Usbu 3</dt>
+                      <dd className="font-medium text-slate-800">{tampilUsbu(konfirmasi, 3)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-500">Santri terdampak</dt>
+                      <dd className="font-medium text-slate-800">
+                        {terdampak === null ? "tidak dapat dibaca" : `${terdampak} santri aktif PPDB`}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-sm text-amber-800 mb-3">
+                    Aktivasi tidak bisa dibatalkan. Periode lama tetap tercatat di riwayat, tapi tidak bisa diaktifkan kembali.
+                  </div>
+                  <div className="bg-sky-50 border border-sky-200 rounded-xl px-3 py-2.5 text-sm text-blue-800 mb-4">
+                    Fase ini hanya mencatat di Bawwabah. Siakad dan PPDB belum berubah — aktivasi di sana tetap dilakukan manual seperti biasa sampai Fase 7.
+                  </div>
+                  {aktivasiError && (
+                    <p className="mb-3 text-sm bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2">{aktivasiError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={jalankanAktivasi}
+                      disabled={mengaktifkan}
+                      className="flex-1 bg-gradient-to-r from-blue-700 to-sky-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-blue-800 hover:to-sky-600 shadow-lg shadow-blue-600/25 disabled:opacity-50"
+                    >
+                      {mengaktifkan ? "Mengaktifkan..." : `Ya, Aktifkan Periode ${konfirmasi.noDufah}`}
+                    </button>
+                    <button
+                      onClick={() => setKonfirmasi(null)}
+                      disabled={mengaktifkan}
+                      className="flex-1 border border-sky-200 text-slate-600 py-2.5 rounded-xl text-sm font-semibold hover:bg-white/70 disabled:opacity-50"
+                    >
+                      Batal
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>
